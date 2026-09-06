@@ -1,15 +1,12 @@
-# config.toml — entry point only: startup (exec-once) + include list.
-# Split: env.conf (environment) / core.conf (animation, appearance, layout, outputs, input…)
-#        binds.conf (keybinds) / rules.conf (window + layer rules).
-# Docs: https://docs.noctalia.dev/umbriel/configuration/#include
+# Config
 
 [include]
 files = ["env.conf", "core.conf", "binds.conf", "rules.conf"]
 
 [general]
 mod_key = "Super"
-autostart = ["noctalia"] # exec-once: runs once at startup, never on reload
-xwayland = true # needs xwayland-satellite on PATH; restart to change
+autostart = ["noctalia"]
+xwayland = true
 show_cheatsheet = false
 focus_on_activate = false
 honor_restored_maximize = false
