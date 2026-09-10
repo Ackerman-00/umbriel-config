@@ -1,11 +1,8 @@
-// lottery.glsl — a random open animation every time.
-// umbriel_random_seed.x picks one of six effects per transition:
-//   0 = holes, 1 = bloom, 2 = watr, 3 = reveal (wipe),
-//   4 = poof (breathe), 5 = cat-map (toral stir, by samiser).
-// Left out: glitchbit (headache), blinds/squash (rejected),
-// halftone (ends transparent = blink), dissipate (blackout on dark backdrop),
-// bijection-flow (retired).
-// Shared fade-in and clean resolve envelope so endpoints never pop.
+// lottery-out.glsl — a random close animation every time.
+// umbriel_random_seed.x picks one of five effects per transition:
+//   0 = life (cells), 1 = holes-out, 2 = bloom, 3 = watr, 4 = reveal.
+// All five end fully transparent, as a close effect must. No resolve
+// envelope (that would pop the window back at the end).
 
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -33,7 +30,53 @@ float fbm(vec2 p) {
     return sum;
 }
 
-// --- effect 0: holes ---
+// --- effect 0: life (by samiser) ---
+const float LIFE_CELL_PX = 3.0;
+const float LIFE_FADE_START = 0.5;
+
+float life_fade() {
+    return 1.0 - smoothstep(LIFE_FADE_START, 1.0, umbriel_linear_progress);
+}
+
+float life_hash(vec2 p) {
+    p = fract(p * vec2(443.897, 441.423) + umbriel_random_seed.xy);
+    p += dot(p, p.yx + 19.19);
+    return fract(p.x * p.y);
+}
+
+float life_alive(vec2 q) {
+    float a = umbriel_sample(q).a * max(life_fade(), 0.05);
+    return a > 0.002 && umbriel_sample_previous(q).a > 0.5 * a ? 1.0 : 0.0;
+}
+
+vec4 fx_life(vec2 uv) {
+    vec4 src = umbriel_sample(uv);
+    vec2 cell = LIFE_CELL_PX / umbriel_size;
+    vec2 id = floor(uv / cell);
+    vec2 q = (id + 0.5) * cell;
+    float n = 0.0;
+    for (int i = -1; i <= 1; i++) {
+        for (int j = -1; j <= 1; j++) {
+            n += life_alive(q + vec2(float(i), float(j)) * cell);
+        }
+    }
+    float me = life_alive(q);
+    n -= me;
+    float state;
+    if (me > 0.5 && n == 8.0) {
+        vec4 centre = umbriel_sample(q);
+        float lum = dot(centre.rgb, vec3(0.299, 0.587, 0.114));
+        state = life_hash(id) < mix(0.25, 0.45, lum) ? 1.0 : 0.0;
+    } else {
+        bool highlife = umbriel_random_seed.z > 0.5;
+        bool birth = n == 3.0 || (highlife && n == 6.0);
+        bool survive = n == 2.0 || n == 3.0;
+        state = me > 0.5 ? (survive ? 1.0 : 0.0) : (birth ? 1.0 : 0.0);
+    }
+    return src * state * life_fade();
+}
+
+// --- effect 1: holes-out ---
 vec2 hole_rand(vec2 cell) {
     vec2 seed = vec2(
         dot(cell, vec2(127.1, 311.7)),
@@ -76,14 +119,14 @@ vec4 fx_holes(vec2 uv, float visible) {
     return umbriel_sample(uv) * mask;
 }
 
-// --- effect 1: bloom ---
+// --- effect 2: bloom (reversed by amount) ---
 vec4 fx_bloom(vec2 uv, float visible) {
     float p = smoothstep(0.0, 1.0, visible);
     float scale = mix(0.01, 1.0, p);
     return umbriel_sample((uv - 0.5) / scale + 0.5);
 }
 
-// --- effect 2: watr ---
+// --- effect 3: watr (reversed by amount) ---
 vec4 fx_watr(vec2 uv, float amount, float seed) {
     float surface = mix(1.15, -0.2, amount);
     float n = fbm(vec2(uv.x * 6.0 + seed, amount * 4.0)) - 0.5;
@@ -103,61 +146,27 @@ vec4 fx_watr(vec2 uv, float amount, float seed) {
     return color;
 }
 
-// --- effect 3: reveal (left-to-right wipe, bundled style) ---
+// --- effect 4: reveal (reversed by amount) ---
 vec4 fx_reveal(vec2 uv, float visible) {
     float edge = mix(-0.02, 1.02, visible);
     float mask = 1.0 - smoothstep(edge - 0.02, edge + 0.02, uv.x);
     return umbriel_sample(uv) * mask;
 }
 
-// --- effect 4: poof (gentle breathe, no flash, no transparency) ---
-vec4 fx_poof(vec2 uv, float p) {
-    float pulse = sin(3.14159265 * p);
-    float scale = 1.0 + 0.08 * pulse;
-    return umbriel_sample((uv - 0.5) / scale + 0.5);
-}
-
-// --- effect 5: cat-map (Arnold toral stir, by samiser) ---
-const int CAT_MAX = 12;
-
-vec4 fx_cat(vec2 uv, float p) {
-    float k = floor(float(CAT_MAX) * sin(3.14159265 * p));
-    float a = 1.0, b = 0.0;
-    for (int i = 0; i < 2 * CAT_MAX; i++) {
-        if (float(i) < 2.0 * k) { float t = a + b; b = a; a = t; }
-    }
-    vec2 q = fract(vec2(a * uv.x + b * uv.y, b * uv.x + (a - b) * uv.y));
-    return umbriel_sample(q);
-}
-
 vec4 animation(vec2 uv) {
-    float p = umbriel_linear_progress;
-    vec4 src = umbriel_sample(uv);
-    if (p > 0.985) {
-        return src;
-    }
-
     float amount = umbriel_direction > 0.0
         ? umbriel_clamped_progress : 1.0 - umbriel_clamped_progress;
 
-    int pick = int(floor(umbriel_random_seed.x * 6.0));
-    vec4 fx;
+    int pick = int(floor(umbriel_random_seed.x * 5.0));
     if (pick == 0) {
-        fx = fx_holes(uv, amount);
+        return fx_life(uv);
     } else if (pick == 1) {
-        fx = fx_bloom(uv, amount);
+        return fx_holes(uv, amount);
     } else if (pick == 2) {
-        fx = fx_watr(uv, amount, umbriel_random_seed.y * 20.0 + umbriel_random_seed.w);
+        return fx_bloom(uv, amount);
     } else if (pick == 3) {
-        fx = fx_reveal(uv, amount);
-    } else if (pick == 4) {
-        fx = fx_poof(uv, p);
+        return fx_watr(uv, amount, umbriel_random_seed.y * 20.0 + umbriel_random_seed.w);
     } else {
-        fx = fx_cat(uv, p);
+        return fx_reveal(uv, amount);
     }
-
-    float enter = smoothstep(0.0, 0.08, p);
-    fx.a *= enter;
-    fx.rgb *= enter;
-    return mix(fx, src, smoothstep(0.6, 1.0, p));
 }
